@@ -140,7 +140,7 @@ class SupabaseStore:
     def list_coupons(self, limit: int = 20) -> list[dict[str, Any]]:
         response = (
             self.client.table("cupons")
-            .select("codigo,descricao,tipo,valor,limite_usos,usos,inicia_em,expira_em,ativo")
+            .select("codigo,descricao,tipo,valor,limite_usos,usos,inicia_em,expira_em,planos_sku,ativo")
             .order("criado_em", desc=True)
             .limit(min(max(limit, 1), 50))
             .execute()
@@ -156,6 +156,7 @@ class SupabaseStore:
         value: float,
         usage_limit: int | None,
         expires_at: str | None,
+        plan_skus: list[str] | None = None,
     ) -> dict[str, Any]:
         response = (
             self.client.table("cupons")
@@ -167,10 +168,11 @@ class SupabaseStore:
                     "valor": value,
                     "limite_usos": usage_limit,
                     "expira_em": expires_at,
+                    "planos_sku": plan_skus or [],
                     "ativo": True,
                 }
             )
-            .select("codigo,descricao,tipo,valor,limite_usos,usos,expira_em,ativo")
+            .select("codigo,descricao,tipo,valor,limite_usos,usos,expira_em,planos_sku,ativo")
             .execute()
         )
         coupon = first_row(response.data)

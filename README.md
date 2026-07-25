@@ -91,7 +91,8 @@ CPU permanecem protegidos pela migracao e pelo checkout no servidor.
 
 Cupons sao validados no backend durante a criacao do pedido. O front-end nunca define desconto,
 preco ou disponibilidade final. Use `/criar_cupom` com tipo `percentual` ou `fixo`, e opcionalmente
-limite de usos e validade em horas.
+limite de usos, validade em horas e `plano_sku` para restringir a campanha a um plano especifico,
+por exemplo `ddr4-8`. Deixe `plano_sku` vazio para permitir todos os planos.
 
 ## Seguranca
 

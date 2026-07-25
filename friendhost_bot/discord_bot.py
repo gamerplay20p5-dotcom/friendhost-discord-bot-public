@@ -411,7 +411,8 @@ class FriendHostBot(discord.Client):
                 value = f"{item['valor']}%" if item["tipo"] == "percentual" else money(item["valor"])
                 limit = item["limite_usos"] if item["limite_usos"] is not None else "sem limite"
                 state = "ativo" if item["ativo"] else "pausado"
-                lines.append(f"`{item['codigo']}` {value} | {item['usos']}/{limit} | {state}")
+                scope = ", ".join(item.get("planos_sku") or []) or "todos os planos"
+                lines.append(f"`{item['codigo']}` {value} | {item['usos']}/{limit} | {state} | {scope}")
             embed = discord.Embed(title="Cupons FriendHost", description="\n".join(lines)[:4000], color=0x8B5CF6)
             embed.set_footer(text="Use /criar_cupom ou /cupom_status para administrar.")
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -424,6 +425,7 @@ class FriendHostBot(discord.Client):
             descricao="Motivo da promocao",
             limite_usos="Opcional. Deixe vazio para ilimitado",
             validade_horas="Opcional. Deixe vazio para nao expirar",
+            plano_sku="Opcional. Restringe o cupom a um SKU, ex: ddr4-8",
         )
         @app_commands.choices(
             tipo=[
@@ -439,6 +441,7 @@ class FriendHostBot(discord.Client):
             descricao: str,
             limite_usos: int | None = None,
             validade_horas: int | None = None,
+            plano_sku: str | None = None,
         ) -> None:
             if not await self._require_staff(interaction):
                 return
@@ -459,6 +462,7 @@ class FriendHostBot(discord.Client):
                     if validade_horas is not None
                     else None
                 )
+                plan_skus = [clean_sku(plano_sku)] if plano_sku else []
                 coupon = await asyncio.to_thread(
                     self.store.create_coupon,
                     code,
@@ -467,6 +471,7 @@ class FriendHostBot(discord.Client):
                     round(valor, 2),
                     limite_usos,
                     expires_at,
+                    plan_skus,
                 )
             except ValueError as exc:
                 await interaction.followup.send(str(exc), ephemeral=True)
@@ -481,6 +486,8 @@ class FriendHostBot(discord.Client):
             embed.add_field(name="Codigo", value=f"`{coupon['codigo']}`", inline=True)
             embed.add_field(name="Desconto", value=value, inline=True)
             embed.add_field(name="Limite", value=str(coupon["limite_usos"] or "sem limite"), inline=True)
+            scope = ", ".join(coupon.get("planos_sku") or []) or "Todos os planos"
+            embed.add_field(name="Aplicacao", value=scope, inline=False)
             embed.add_field(name="Descricao", value=coupon["descricao"], inline=False)
             embed.set_footer(text="O cupom passa a ser validado no checkout do site.")
             await interaction.followup.send(embed=embed, ephemeral=True)
