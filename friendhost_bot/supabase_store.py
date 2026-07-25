@@ -181,6 +181,28 @@ class SupabaseStore:
         return coupon
 
     @serialized_store_call
+    def get_coupon(self, code: str) -> dict[str, Any] | None:
+        response = (
+            self.client.table("cupons")
+            .select("codigo,descricao,tipo,valor,limite_usos,usos,inicia_em,expira_em,planos_sku,ativo")
+            .eq("codigo", code)
+            .execute()
+        )
+        return first_row(response.data)
+
+    @serialized_store_call
+    def update_coupon(self, code: str, changes: dict[str, Any]) -> dict[str, Any] | None:
+        payload = {**changes, "atualizado_em": datetime.now(timezone.utc).isoformat()}
+        response = (
+            self.client.table("cupons")
+            .update(payload)
+            .eq("codigo", code)
+            .select("codigo,descricao,tipo,valor,limite_usos,usos,inicia_em,expira_em,planos_sku,ativo")
+            .execute()
+        )
+        return first_row(response.data)
+
+    @serialized_store_call
     def set_coupon_active(self, code: str, active: bool) -> dict[str, Any] | None:
         response = (
             self.client.table("cupons")

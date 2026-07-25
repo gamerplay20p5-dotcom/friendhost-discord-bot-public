@@ -270,7 +270,7 @@ class FriendHostBot(discord.Client):
             embed.add_field(name="Financeiro", value="`/pedidos_recentes`\n`/faturas email:`\n`/gerar_fatura`", inline=True)
             embed.add_field(
                 name="Catalogo e promocoes",
-                value="`/catalogo`\n`/alterar_plano`\n`/cupons`\n`/criar_cupom`",
+                value="`/catalogo`\n`/alterar_plano`\n`/cupons`\n`/criar_cupom`\n`/editar_cupom`",
                 inline=True,
             )
             embed.add_field(name="Operacao", value="`/assistente pergunta:`\n`/atualizar_bot`", inline=True)
@@ -414,7 +414,7 @@ class FriendHostBot(discord.Client):
                 scope = ", ".join(item.get("planos_sku") or []) or "todos os planos"
                 lines.append(f"`{item['codigo']}` {value} | {item['usos']}/{limit} | {state} | {scope}")
             embed = discord.Embed(title="Cupons FriendHost", description="\n".join(lines)[:4000], color=0x8B5CF6)
-            embed.set_footer(text="Use /criar_cupom ou /cupom_status para administrar.")
+            embed.set_footer(text="Use /criar_cupom, /editar_cupom ou /cupom_status para administrar.")
             await interaction.followup.send(embed=embed, ephemeral=True)
 
         @self.tree.command(name="criar_cupom", description="Cria um cupom valido para o checkout.")
@@ -491,6 +491,113 @@ class FriendHostBot(discord.Client):
             embed.add_field(name="Descricao", value=coupon["descricao"], inline=False)
             embed.set_footer(text="O cupom passa a ser validado no checkout do site.")
             await interaction.followup.send(embed=embed, ephemeral=True)
+
+        @self.tree.command(name="editar_cupom", description="Edita limite, validade, desconto ou plano de um cupom.")
+        @app_commands.describe(
+            codigo="Codigo do cupom existente",
+            tipo="Opcional. Novo tipo de desconto",
+            valor="Opcional. Novo valor do desconto",
+            descricao="Opcional. Nova descricao",
+            limite_usos="Opcional. Use 0 para deixar ilimitado",
+            validade_horas="Opcional. Use 0 para remover a expiracao",
+            plano_sku="Opcional. SKU permitido; use todos para liberar todos os planos",
+        )
+        @app_commands.choices(
+            tipo=[
+                app_commands.Choice(name="Percentual", value="percentual"),
+                app_commands.Choice(name="Valor fixo", value="fixo"),
+            ]
+        )
+        async def edit_coupon(
+            interaction: discord.Interaction,
+            codigo: str,
+            tipo: app_commands.Choice[str] | None = None,
+            valor: float | None = None,
+            descricao: str | None = None,
+            limite_usos: int | None = None,
+            validade_horas: int | None = None,
+            plano_sku: str | None = None,
+        ) -> None:
+            if not await self._require_staff(interaction):
+                return
+            await interaction.response.defer(thinking=True, ephemeral=True)
+            try:
+                code = clean_coupon_code(codigo)
+                if all(value is None for value in (tipo, valor, descricao, limite_usos, validade_horas, plano_sku)):
+                    raise ValueError("Informe ao menos um campo para alterar.")
+                current = await asyncio.to_thread(self.store.get_coupon, code)
+                if not current:
+                    await interaction.followup.send("Cupom nao encontrado.", ephemeral=True)
+                    return
+
+                next_type = tipo.value if tipo else current["tipo"]
+                changes: dict[str, Any] = {}
+                if tipo:
+                    changes["tipo"] = next_type
+                if valor is not None:
+                    if not 0 < valor <= (100 if next_type == "percentual" else 5000):
+                        raise ValueError("Valor de desconto invalido.")
+                    changes["valor"] = round(valor, 2)
+                if descricao is not None:
+                    changes["descricao"] = clean_text(descricao, 240)
+                if limite_usos is not None:
+                    if not 0 <= limite_usos <= 100_000:
+                        raise ValueError("Limite de usos invalido.")
+                    next_limit = None if limite_usos == 0 else limite_usos
+                    if next_limit is not None and next_limit < int(current["usos"]):
+                        raise ValueError("O limite nao pode ficar abaixo dos usos ja registrados.")
+                    changes["limite_usos"] = next_limit
+                if validade_horas is not None:
+                    if not 0 <= validade_horas <= 8_760:
+                        raise ValueError("Validade deve ficar entre 0 e 8760 horas.")
+                    changes["expira_em"] = (
+                        None
+                        if validade_horas == 0
+                        else (datetime.now(timezone.utc) + timedelta(hours=validade_horas)).isoformat()
+                    )
+                if plano_sku is not None:
+                    scope = clean_text(plano_sku, 32).lower()
+                    changes["planos_sku"] = [] if scope in {"todos", "all", "*"} else [clean_sku(scope)]
+
+                coupon = await asyncio.to_thread(self.store.update_coupon, code, changes)
+            except ValueError as exc:
+                await interaction.followup.send(str(exc), ephemeral=True)
+                return
+            except Exception as exc:
+                print(f"Erro ao editar cupom: {exc}")
+                await interaction.followup.send("Nao foi possivel editar o cupom.", ephemeral=True)
+                return
+
+            if not coupon:
+                await interaction.followup.send("Cupom nao encontrado.", ephemeral=True)
+                return
+            value = f"{coupon['valor']}%" if coupon["tipo"] == "percentual" else money(coupon["valor"])
+            scope = ", ".join(coupon.get("planos_sku") or []) or "Todos os planos"
+            embed = discord.Embed(title="Cupom atualizado", color=0x6366F1)
+            embed.add_field(name="Codigo", value=f"`{coupon['codigo']}`", inline=True)
+            embed.add_field(name="Desconto", value=value, inline=True)
+            embed.add_field(name="Aplicacao", value=scope, inline=True)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        @self.tree.command(name="desativar_cupom", description="Pausa um cupom imediatamente.")
+        @app_commands.describe(codigo="Codigo do cupom a pausar")
+        async def disable_coupon(interaction: discord.Interaction, codigo: str) -> None:
+            if not await self._require_staff(interaction):
+                return
+            await interaction.response.defer(thinking=True, ephemeral=True)
+            try:
+                coupon = await asyncio.to_thread(self.store.set_coupon_active, clean_coupon_code(codigo), False)
+            except ValueError as exc:
+                await interaction.followup.send(str(exc), ephemeral=True)
+                return
+            except Exception as exc:
+                print(f"Erro ao desativar cupom: {exc}")
+                await interaction.followup.send("Nao foi possivel desativar o cupom.", ephemeral=True)
+                return
+            if not coupon:
+                await interaction.followup.send("Cupom nao encontrado.", ephemeral=True)
+                return
+            await interaction.followup.send(f"Cupom `{coupon['codigo']}` foi desativado.", ephemeral=True)
 
         @self.tree.command(name="cupom_status", description="Ativa ou pausa um cupom.")
         @app_commands.describe(codigo="Codigo do cupom", ativo="true ativa; false pausa")

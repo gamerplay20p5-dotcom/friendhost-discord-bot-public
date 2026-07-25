@@ -94,6 +94,10 @@ preco ou disponibilidade final. Use `/criar_cupom` com tipo `percentual` ou `fix
 limite de usos, validade em horas e `plano_sku` para restringir a campanha a um plano especifico,
 por exemplo `ddr4-8`. Deixe `plano_sku` vazio para permitir todos os planos.
 
+Cupons de 100% geram um pedido gratuito e confirmado, sem criar checkout no Mercado Pago. Para
+operacao diaria, use `/editar_cupom` para ajustar valores, limites, validade ou o SKU permitido;
+use `/desativar_cupom` para pausar uma campanha imediatamente.
+
 ## Seguranca
 
 O arquivo `.env` fica ignorado pelo Git. Use somente `.env.example` como modelo publico.
