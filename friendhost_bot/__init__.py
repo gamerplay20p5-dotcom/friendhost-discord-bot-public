@@ -1,0 +1,1 @@
+"""FriendHost Discord bot package."""
