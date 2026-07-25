@@ -98,7 +98,11 @@ class FriendHostBot(discord.Client):
 
     async def on_ready(self) -> None:
         if self.last_support_created_at is None and not self.settings.support_sync_on_start:
-            latest = await asyncio.to_thread(self.store.latest_customer_support_message)
+            try:
+                latest = await asyncio.to_thread(self.store.latest_customer_support_message)
+            except Exception as exc:
+                print(f"Erro ao iniciar sincronizacao do suporte: {exc}")
+                latest = None
             if latest:
                 self.last_support_created_at = latest.get("created_at")
                 if latest.get("id"):
@@ -109,7 +113,11 @@ class FriendHostBot(discord.Client):
 
         if self.settings.orders_channel_id and (self.orders_task is None or self.orders_task.done()):
             if self.last_invoice_created_at is None and not self.settings.orders_sync_on_start:
-                latest_invoice = await asyncio.to_thread(self.store.latest_invoice)
+                try:
+                    latest_invoice = await asyncio.to_thread(self.store.latest_invoice)
+                except Exception as exc:
+                    print(f"Erro ao iniciar sincronizacao de pedidos: {exc}")
+                    latest_invoice = None
                 if latest_invoice:
                     self.last_invoice_created_at = latest_invoice.get("created_at")
                     if latest_invoice.get("id"):

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import wraps
+from threading import RLock
 from typing import Any
 
 from supabase import Client, create_client
@@ -11,6 +13,18 @@ def first_row(data: Any) -> dict[str, Any] | None:
     if isinstance(data, list):
         return data[0] if data and isinstance(data[0], dict) else None
     return data if isinstance(data, dict) else None
+
+
+def serialized_store_call(method: Any) -> Any:
+    @wraps(method)
+    def wrapped(self: "SupabaseStore", *args: Any, **kwargs: Any) -> Any:
+        # supabase-py usa um cliente HTTP sincrono compartilhado. As tarefas
+        # do Discord rodam em threads, portanto cada requisicao precisa usar a
+        # conexao por vez para evitar corrupcao de streams HTTP/2.
+        with self._request_lock:
+            return method(self, *args, **kwargs)
+
+    return wrapped
 
 
 @dataclass(frozen=True)
@@ -26,7 +40,9 @@ class InvoiceInput:
 class SupabaseStore:
     def __init__(self, url: str, service_key: str) -> None:
         self.client: Client = create_client(url, service_key)
+        self._request_lock = RLock()
 
+    @serialized_store_call
     def list_invoices(self, customer_email: str) -> list[dict[str, Any]]:
         response = (
             self.client.table("faturas")
@@ -37,10 +53,12 @@ class SupabaseStore:
         )
         return response.data or []
 
+    @serialized_store_call
     def latest_invoice(self) -> dict[str, Any] | None:
         invoices = self.list_recent_invoices(limit=1)
         return invoices[0] if invoices else None
 
+    @serialized_store_call
     def list_recent_invoices(self, limit: int = 10, created_after: str | None = None) -> list[dict[str, Any]]:
         query = (
             self.client.table("faturas")
@@ -53,6 +71,7 @@ class SupabaseStore:
         response = query.execute()
         return response.data or []
 
+    @serialized_store_call
     def create_invoice(self, invoice: InvoiceInput) -> None:
         payload = {
             "id": invoice.invoice_id,
@@ -65,6 +84,7 @@ class SupabaseStore:
         }
         self.client.table("faturas").insert(payload).execute()
 
+    @serialized_store_call
     def list_catalog_plans(self) -> list[dict[str, Any]]:
         response = (
             self.client.table("catalogo_planos")
@@ -78,6 +98,7 @@ class SupabaseStore:
         )
         return response.data or []
 
+    @serialized_store_call
     def update_catalog_plan(
         self,
         sku: str,
@@ -104,6 +125,7 @@ class SupabaseStore:
         )
         return first_row(response.data)
 
+    @serialized_store_call
     def set_catalog_plan_active(self, sku: str, active: bool) -> dict[str, Any] | None:
         response = (
             self.client.table("catalogo_planos")
@@ -114,6 +136,7 @@ class SupabaseStore:
         )
         return first_row(response.data)
 
+    @serialized_store_call
     def list_coupons(self, limit: int = 20) -> list[dict[str, Any]]:
         response = (
             self.client.table("cupons")
@@ -124,6 +147,7 @@ class SupabaseStore:
         )
         return response.data or []
 
+    @serialized_store_call
     def create_coupon(
         self,
         code: str,
@@ -154,6 +178,7 @@ class SupabaseStore:
             raise RuntimeError("O Supabase nao retornou o cupom criado.")
         return coupon
 
+    @serialized_store_call
     def set_coupon_active(self, code: str, active: bool) -> dict[str, Any] | None:
         response = (
             self.client.table("cupons")
@@ -164,6 +189,7 @@ class SupabaseStore:
         )
         return first_row(response.data)
 
+    @serialized_store_call
     def latest_customer_support_message(self) -> dict[str, Any] | None:
         response = (
             self.client.table("mensagens_suporte")
@@ -176,6 +202,7 @@ class SupabaseStore:
         data = response.data or []
         return data[0] if data else None
 
+    @serialized_store_call
     def customer_support_messages_after(self, created_at: str | None) -> list[dict[str, Any]]:
         query = (
             self.client.table("mensagens_suporte")
@@ -191,6 +218,7 @@ class SupabaseStore:
         response = query.execute()
         return response.data or []
 
+    @serialized_store_call
     def create_support_reply(self, customer_email: str, message: str) -> None:
         self.client.table("mensagens_suporte").insert(
             {
