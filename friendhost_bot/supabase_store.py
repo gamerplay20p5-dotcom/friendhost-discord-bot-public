@@ -7,6 +7,12 @@ from typing import Any
 from supabase import Client, create_client
 
 
+def first_row(data: Any) -> dict[str, Any] | None:
+    if isinstance(data, list):
+        return data[0] if data and isinstance(data[0], dict) else None
+    return data if isinstance(data, dict) else None
+
+
 @dataclass(frozen=True)
 class InvoiceInput:
     invoice_id: str
@@ -94,10 +100,9 @@ class SupabaseStore:
                 "sku,maquina_nome,ram_gb,cpu_percent,storage_gb,primeiro_mes,"
                 "valor_renovacao,ativo,promocao_rotulo,atualizado_em"
             )
-            .maybe_single()
             .execute()
         )
-        return response.data
+        return first_row(response.data)
 
     def set_catalog_plan_active(self, sku: str, active: bool) -> dict[str, Any] | None:
         response = (
@@ -105,10 +110,9 @@ class SupabaseStore:
             .update({"ativo": active, "atualizado_em": datetime.now(timezone.utc).isoformat()})
             .eq("sku", sku)
             .select("sku,maquina_nome,ram_gb,ativo")
-            .maybe_single()
             .execute()
         )
-        return response.data
+        return first_row(response.data)
 
     def list_coupons(self, limit: int = 20) -> list[dict[str, Any]]:
         response = (
@@ -143,10 +147,12 @@ class SupabaseStore:
                 }
             )
             .select("codigo,descricao,tipo,valor,limite_usos,usos,expira_em,ativo")
-            .single()
             .execute()
         )
-        return response.data
+        coupon = first_row(response.data)
+        if not coupon:
+            raise RuntimeError("O Supabase nao retornou o cupom criado.")
+        return coupon
 
     def set_coupon_active(self, code: str, active: bool) -> dict[str, Any] | None:
         response = (
@@ -154,10 +160,9 @@ class SupabaseStore:
             .update({"ativo": active, "atualizado_em": datetime.now(timezone.utc).isoformat()})
             .eq("codigo", code)
             .select("codigo,ativo,usos,limite_usos")
-            .maybe_single()
             .execute()
         )
-        return response.data
+        return first_row(response.data)
 
     def latest_customer_support_message(self) -> dict[str, Any] | None:
         response = (
